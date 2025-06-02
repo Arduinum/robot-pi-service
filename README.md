@@ -2,6 +2,8 @@
 
 **Robot-pi-service** - сервис для управления роботом на orange pi, работающий на linux Armbian.
 
+**Запуск сервиса (как проекта python3)** - `make run`
+
 <details>
 	<summary>
 		<strong>
