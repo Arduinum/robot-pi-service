@@ -1,8 +1,10 @@
 import asyncio
 from websockets import serve, exceptions
 from websockets.legacy.server import WebSocketServerProtocol
+from json import loads, JSONDecodeError
 
 from settings import settings
+from gpio_control import LedLineGpio
 
 
 async def robot_control_gpio(websocket: WebSocketServerProtocol):
@@ -11,16 +13,28 @@ async def robot_control_gpio(websocket: WebSocketServerProtocol):
     """
 
     try:
+        led_line_gpio = LedLineGpio(line=6)
+        action = None
+
         while True:
             try:
                 command = await asyncio.wait_for(websocket.recv(), timeout=30.0)
+                data = loads(command)
             except asyncio.TimeoutError as err:
                 print('Таймаут ожидания команды от клиента')
                 continue  # продолжение цикла, чтобы не закрывать соединение
+            except JSONDecodeError:
+                print("Ошибка при декодировании JSON")
+                continue
             
-            match command:
+            match next(iter(data), None):
                 case settings.commands_robot.forward:
-                    action = 'Робот едет вперёд'
+                    if data.get(settings.commands_robot.forward):
+                        action = 'Робот едет вперёд'
+                        led_line_gpio.on()
+                    else:
+                        action = 'Команда вперёд стоп'
+                        led_line_gpio.off()
                     print(action)
                     await websocket.send(message=action)
                 case settings.commands_robot.backward:
@@ -45,10 +59,14 @@ async def robot_control_gpio(websocket: WebSocketServerProtocol):
         message_err = f'{err.__class__.__name__}: {err}'
         print(message_err)
         await websocket.send(message=message_err)
+    finally:
+        led_line_gpio.close()
 
 
 async def start():
     """Асинхронная функция запуска вебсокета и бесконечного цикла"""
+
+    print('Старт сервиса робота для приёма команд.')
 
     async with serve(handler=robot_control_gpio, host=settings.websocket_host, port=settings.websocket_port):
         # бесконечный цикл
@@ -61,7 +79,7 @@ def run_app():
     try:
         asyncio.run(start())
     except KeyboardInterrupt:
-        pass
+        print('Выключение сервиса робота для приёма команд.')
 
 
 if __name__ == '__main__':

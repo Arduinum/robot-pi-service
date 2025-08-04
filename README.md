@@ -2,6 +2,11 @@
 
 **Robot-pi-service** - сервис для управления роботом на orange pi, работающий на linux Armbian.
 
+**Для работы с GPIO:**
+
+1. `chmod +x gpio_setup.sh`
+2. `./gpio_setup.sh`
+
 **Запуск сервиса (как проекта python3)** - `make run`
 
 <details>
