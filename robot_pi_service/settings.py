@@ -18,6 +18,26 @@ class CommandsRobot(ModelConfig):
     backward: str
     left: str
     right: str
+    stop: str
+
+    def is_command(self, command: str) -> bool:
+        """Есть ли команда в командах"""
+
+        return command in self.model_dump().values()
+
+
+class GpioLines(ModelConfig):
+    """Класс для линий GPIO"""
+
+    gpio_path: str
+    led_line: int
+    led_consumer: str
+    left_motor_line_in1: int
+    left_motor_line_in2: int
+    left_motor_consumer: str
+    right_motor_line_in1: int
+    right_motor_line_in2: int
+    right_motor_consumer: str
 
 
 class Settings(ModelConfig):
@@ -26,6 +46,7 @@ class Settings(ModelConfig):
     websocket_host: str
     websocket_port: int
     commands_robot: CommandsRobot = CommandsRobot()
+    gpio_lines: GpioLines = GpioLines()
 
 
 settings = Settings()
