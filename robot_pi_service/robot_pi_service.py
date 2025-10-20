@@ -1,4 +1,6 @@
 import asyncio
+from functools import partial
+from gpiod import exception
 from socket import gethostbyname
 from websockets import serve, exceptions
 from websockets.legacy.server import WebSocketServerProtocol
@@ -9,20 +11,25 @@ from gpio_control import RobotControl
 from response_data import FormResponse
 
 
-async def robot_control_gpio(websocket: WebSocketServerProtocol) -> None:
+async def robot_control_gpio(
+    websocket: WebSocketServerProtocol,
+    robot_control: RobotControl,
+    commands_status: FormResponse
+) -> None:
     """
     Асинхронная функция для управлением gpio робота (через websocket)
     """
 
     try:
-        robot_control = RobotControl()
-        commands_status = FormResponse
-
         while True:
             try:
                 command = await asyncio.wait_for(websocket.recv(), timeout=30.0)
                 data = loads(command)
                 command_name = data.get('command')
+
+                if command_name != settings.commands_robot.stop:
+                    robot_control.blinking_off()
+                    robot_control.connected()
             except asyncio.TimeoutError as err:
                 print('Таймаут ожидания команды от клиента')
                 continue  # продолжение цикла, чтобы не закрывать соединение
@@ -41,6 +48,7 @@ async def robot_control_gpio(websocket: WebSocketServerProtocol) -> None:
                     robot_control.right()
                 case settings.commands_robot.stop:
                     robot_control.stop()
+                    robot_control.ready_to_connect()
                 case _:
                     data.update(commands_status.NOT_FOUND_COMMAND.response)
                     await websocket.send(message=dumps(data))
@@ -48,9 +56,9 @@ async def robot_control_gpio(websocket: WebSocketServerProtocol) -> None:
             if settings.commands_robot.is_command(command=command_name):
                 data.update(commands_status.OK_COMMAND.response)
                 await websocket.send(message=dumps(data))
-    except exceptions.ConnectionClosed:
+    except (exceptions.ConnectionClosed, exception.RequestReleasedError):
         pass
-    except (exceptions.ConnectionClosedOK, exceptions.InvalidMessage, exceptions.InvalidState) as err:
+    except (exceptions.ConnectionClosedOK, exceptions.InvalidMessage, exceptions.InvalidState, OSError) as err:
         message_err = f'{err.__class__.__name__}: {err}'
         print(message_err)
         data.update(
@@ -60,8 +68,6 @@ async def robot_control_gpio(websocket: WebSocketServerProtocol) -> None:
             )
         )
         await websocket.send(message=dumps(data))
-    finally:
-        robot_control.close()
 
 
 async def start() -> None:
@@ -69,13 +75,24 @@ async def start() -> None:
 
     print('Старт сервиса робота для приёма команд.')
 
-    async with serve(
-        handler=robot_control_gpio, 
-        host=gethostbyname(settings.websocket_host), 
-        port=settings.websocket_port
-    ):
-        # бесконечный цикл
-        await asyncio.Future()
+    try:
+        robot_control: RobotControl = RobotControl()
+        commands_status: FormResponse = FormResponse
+        
+        async with serve(
+            handler=partial(robot_control_gpio, robot_control=robot_control, commands_status=commands_status), 
+            host=gethostbyname(settings.websocket_host), 
+            port=settings.websocket_port
+        ):
+            # бесконечный цикл
+            await asyncio.Future()
+    except asyncio.CancelledError:
+        if robot_control is not None:
+            robot_control.blinking_off()
+            robot_control.close()
+
+        # пробрасываем CancelledError, чтобы asyncio.run() всё корректно закрыл
+        raise
 
 
 def run_app() -> None:
