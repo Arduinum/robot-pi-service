@@ -1,5 +1,6 @@
-from gpiod import request_lines, LineSettings
+from gpiod import request_lines, LineSettings, RequestReleasedError
 from gpiod.line import Direction, Value
+import asyncio
 
 from settings import settings
 
@@ -19,6 +20,7 @@ class LedLineGpio:
                 )
             }
         )
+        self._task: asyncio.Task | None = None
 
     def on(self) -> None:
         """Метод для включения LED"""
@@ -27,8 +29,33 @@ class LedLineGpio:
 
     def off(self) -> None:
         """Метод для выключения LED"""
-        
+
         self._request.set_value(self.line, Value.INACTIVE)
+
+    async def _blinking(self) -> None:
+        """Метод для мигания LED"""    
+
+        try:
+            while True:
+                self._request.set_value(self.line, Value.ACTIVE)
+                await asyncio.sleep(0.2)
+                self._request.set_value(self.line, Value.INACTIVE)
+                await asyncio.sleep(0.2)
+        except RequestReleasedError:
+            pass
+
+    def start_blinking(self) -> None:
+        """Метод для добавления асинхронной задачи мигания LED"""
+        
+        if not self._task or self._task.done():
+            self._task = asyncio.create_task(self._blinking())
+
+    def stop_blinking(self) -> None:
+        """Метод для остановки мигания LED"""
+        
+        if self._task:
+            self._task.cancel()
+            self._request.set_value(self.line, Value.INACTIVE)
 
     def close(self) -> None:
         """Метод для освобождения ресурса"""
@@ -107,7 +134,29 @@ class RobotControl:
             consumer=settings.gpio_lines.right_motor_consumer
         )
 
+        self._led_indicator = LedLineGpio(
+            line=settings.gpio_lines.led_line,
+            gpio_path=settings.gpio_lines.gpio_path,
+            consumer=settings.gpio_lines.led_consumer
+        )
+
         self.stop()
+        self.ready_to_connect()
+
+    def ready_to_connect(self) -> None:
+        """Готовность робота к подключению (индикация)"""
+
+        self._led_indicator.start_blinking()
+
+    def connected(self) -> None:
+        """Робот подключен (индикация)"""
+
+        self._led_indicator.on()
+
+    def blinking_off(self) -> None:
+        """Выключение моргания LED"""
+
+        self._led_indicator.stop_blinking()
 
     def forward(self) -> None:
         """Движение робота вперёд"""
@@ -124,15 +173,15 @@ class RobotControl:
     def left(self) -> None:
         """Поворот робота налево"""
 
-        self._right_motor.forward_motor()
-        self._left_motor.backward_motor()
+        self._right_motor.backward_motor()
+        self._left_motor.forward_motor()
 
     def right(self) -> None:
         """Поворот робота направо"""
 
-        self._right_motor.backward_motor()
-        self._left_motor.forward_motor()
-
+        self._right_motor.forward_motor()
+        self._left_motor.backward_motor()
+        
     def stop(self) -> None:
         """Остановка робота"""
 
@@ -144,3 +193,4 @@ class RobotControl:
         
         self._left_motor.close()
         self._right_motor.close()
+        self._led_indicator.close()
