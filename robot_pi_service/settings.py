@@ -40,12 +40,21 @@ class GpioLines(ModelConfig):
     right_motor_consumer: str
 
 
+class CommandsLinux(ModelConfig):
+    """Класс с командами для линукса"""
+
+    videostream: str
+    on_videostream: bool
+    on_stream_debug: bool
+
+
 class Settings(ModelConfig):
     """Класс для данных конфига"""
 
     websocket_host: str
     websocket_port: int
     commands_robot: CommandsRobot = CommandsRobot()
+    commands_linux: CommandsLinux = CommandsLinux()
     gpio_lines: GpioLines = GpioLines()
 
 
