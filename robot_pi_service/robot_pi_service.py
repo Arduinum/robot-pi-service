@@ -1,10 +1,14 @@
 import asyncio
 from functools import partial
 from gpiod import exception
+from subprocess import Popen, DEVNULL
+from os import setpgrp, killpg, getpgid
+from signal import SIGTERM
 from socket import gethostbyname
 from websockets import serve, exceptions
 from websockets.legacy.server import WebSocketServerProtocol
 from json import loads, dumps, JSONDecodeError
+from time import sleep
 
 from settings import settings
 from gpio_control import RobotControl
@@ -57,7 +61,7 @@ async def robot_control_gpio(
                 data.update(commands_status.OK_COMMAND.response)
                 await websocket.send(message=dumps(data))
     except (exceptions.ConnectionClosed, exception.RequestReleasedError):
-        pass
+        return
     except (exceptions.ConnectionClosedOK, exceptions.InvalidMessage, exceptions.InvalidState, OSError) as err:
         message_err = f'{err.__class__.__name__}: {err}'
         print(message_err)
@@ -86,22 +90,43 @@ async def start() -> None:
         ):
             # бесконечный цикл
             await asyncio.Future()
-    except asyncio.CancelledError:
+    except (asyncio.CancelledError, OSError, exception.RequestReleasedError) as err:
+        # пробрасываем ошибку, чтобы asyncio.run() всё корректно закрыл
+        message_err = f'{err.__class__.__name__}: {err}'
+        print(message_err)
+        raise
+    finally:
         if robot_control is not None:
             robot_control.blinking_off()
             robot_control.close()
-
-        # пробрасываем CancelledError, чтобы asyncio.run() всё корректно закрыл
-        raise
 
 
 def run_app() -> None:
     """Функция старата приложения"""
 
+    command_stream = None
+
     try:
+        if settings.commands_linux.on_videostream:
+            command_stream = Popen(
+                settings.commands_linux.videostream, 
+                shell=True, 
+                preexec_fn=setpgrp, 
+                stderr=None if settings.commands_linux.on_stream_debug else DEVNULL
+            )
+            sleep(0.1)
+            print('Видеострим запущен.')
+        
         asyncio.run(start())
     except KeyboardInterrupt:
-        print('Выключение сервиса робота для приёма команд.')
+        try:
+            if settings.commands_linux.on_videostream and command_stream:
+                killpg(getpgid(command_stream.pid), SIGTERM)
+        except ProcessLookupError:
+            # Если процесс был уже завершён
+            pass
+        finally:
+            print('Выключение сервиса робота для приёма команд.')
 
 
 if __name__ == '__main__':
